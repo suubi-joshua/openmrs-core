@@ -8,11 +8,11 @@
 #	Copyright (C) OpenMRS Inc. OpenMRS is a registered trademark and the OpenMRS 
 #	graphic logo is a trademark of OpenMRS Inc.
 
-ARG DEV_JDK=amazoncorretto-8
-ARG RUNTIME_JDK=jdk8-corretto
+ARG DEV_JDK=amazoncorretto-17
+ARG RUNTIME_JDK=jdk17-corretto
 
 ### Compile Stage (platform-agnostic)
-FROM --platform=$BUILDPLATFORM maven:3.8-$DEV_JDK as compile
+FROM --platform=$BUILDPLATFORM maven:3.9-$DEV_JDK AS compile
 
 RUN yum -y update && yum -y install git && yum clean all
 
@@ -52,9 +52,9 @@ ARG MVN_ARGS='clean install -DskipTests'
 RUN mvn $MVN_SETTINGS $MVN_ARGS
 
 ### Development Stage
-FROM maven:3.8-$DEV_JDK as dev
+FROM maven:3.9-$DEV_JDK AS dev
 
-RUN yum -y update && yum -y install tar gzip git && yum clean all
+RUN yum -y update && yum -y install tar gzip git mariadb && yum clean all
 
 # Setup Tini
 ARG TARGETARCH
@@ -100,7 +100,7 @@ CMD ["/openmrs/startup-dev.sh"]
 ### Production Stage
 FROM tomcat:9-$RUNTIME_JDK
 
-RUN yum -y update && yum clean all && rm -rf /usr/local/tomcat/webapps/*
+RUN yum -y update && yum -y install mariadb && yum clean all && rm -rf /usr/local/tomcat/webapps/*
 
 # Setup Tini
 ARG TARGETARCH

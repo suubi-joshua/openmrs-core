@@ -564,11 +564,13 @@ public class ModuleUtil {
 	 * @param keepFullPath if true, will recreate entire directory structure in tmpModuleDir
 	 *            relating to <code>name</code>. if false will start directory structure at
 	 *            <code>name</code>
+	 * @throws UnsupportedOperationException if an entry would be extracted outside of tmpModuleDir (Zip slip attack)
 	 * <strong>Should</strong> expand entire jar if name is null
 	 * <strong>Should</strong> expand entire jar if name is empty string
 	 * <strong>Should</strong> expand directory with parent tree if name is directory and keepFullPath is true
 	 * <strong>Should</strong> expand directory without parent tree if name is directory and keepFullPath is false
 	 * <strong>Should</strong> expand file with parent tree if name is file and keepFullPath is true
+	 * <strong>Should</strong> throw exception for Zip slip attack
 	 */
 	public static void expandJar(File fileToExpand, File tmpModuleDir, String name, boolean keepFullPath) throws IOException {
 		String docBase = tmpModuleDir.getAbsolutePath();
@@ -590,6 +592,9 @@ public class ModuleUtil {
 					int last = entryName.lastIndexOf('/');
 					if (last >= 0) {
 						File parent = new File(docBase, entryName.substring(0, last));
+						if (!parent.toPath().normalize().startsWith(docBase)) {
+							throw new UnsupportedOperationException("Attempted to create directory '" + entryName + "' rejected as it attempts to write outside the chosen directory. This may be the result of a zip-slip style attack.");
+						}
 						parent.mkdirs();
 						log.debug("Creating parent dirs: " + parent.getAbsolutePath());
 					}
@@ -853,11 +858,12 @@ public class ModuleUtil {
 		for (Module module : startedModules) {
 			try {
 				if (module.getModuleActivator() != null) {
+					log.debug("Run module willRefreshContext: {}", module.getModuleId());
 					Thread.currentThread().setContextClassLoader(ModuleFactory.getModuleClassLoader(module));
 					module.getModuleActivator().willRefreshContext();
 				}
 			}
-			catch (Exception e) {
+			catch (Error e) {
 				log.warn("Unable to call willRefreshContext() method in the module's activator", e);
 			}
 		}
@@ -879,6 +885,7 @@ public class ModuleUtil {
 		ctx.setClassLoader(OpenmrsClassLoader.getInstance());
 		Thread.currentThread().setContextClassLoader(OpenmrsClassLoader.getInstance());
 		
+		log.debug("Refreshing context");
 		ServiceContext.getInstance().startRefreshingContext();
 		try {
 			ctx.refresh();
@@ -886,11 +893,13 @@ public class ModuleUtil {
 		finally {
 			ServiceContext.getInstance().doneRefreshingContext();
 		}
+		log.debug("Done refreshing context");
 		
 		ctx.setClassLoader(OpenmrsClassLoader.getInstance());
 		Thread.currentThread().setContextClassLoader(OpenmrsClassLoader.getInstance());
 		
 		OpenmrsClassLoader.restoreState();
+		log.debug("Startup scheduler");
 		SchedulerUtil.startup(Context.getRuntimeProperties());
 		
 		OpenmrsClassLoader.setThreadsToNewClassLoader();
@@ -914,25 +923,29 @@ public class ModuleUtil {
 					ModuleFactory.passDaemonToken(module);
 					
 					if (module.getModuleActivator() != null) {
+						log.debug("Run module contextRefreshed: {}", module.getModuleId());
 						module.getModuleActivator().contextRefreshed();
 						try {
 							//if it is system start up, call the started method for all started modules
 							if (isOpenmrsStartup) {
+								log.debug("Run module started: {}", module.getModuleId());
 								module.getModuleActivator().started();
 							}
 							//if refreshing the context after a user started or uploaded a new module
 							else if (!isOpenmrsStartup && module.equals(startedModule)) {
+								log.debug("Run module started: {}", module.getModuleId());
 								module.getModuleActivator().started();
 							}
+							log.debug("Done running module started: {}", module.getModuleId());
 						}
-						catch (Exception e) {
+						catch (Error e) {
 							log.warn("Unable to invoke started() method on the module's activator", e);
 							ModuleFactory.stopModule(module, true, true);
 						}
 					}
 					
 				}
-				catch (Exception e) {
+				catch (Error e) {
 					log.warn("Unable to invoke method on the module's activator ", e);
 				}
 			}
